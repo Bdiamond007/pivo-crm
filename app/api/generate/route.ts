@@ -10,16 +10,17 @@ export async function POST(req: NextRequest) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 1000,
-      system: 'You are a local business outreach expert. Respond with valid JSON only.',
+      system: 'You are a local business outreach expert. Respond with valid JSON only. No markdown, no backticks, just raw JSON.',
       messages: [{ role: 'user', content: prompt }],
     }),
   })
   const data = await res.json()
-  const text = data.content?.find((b: any) => b.type === 'text')?.text || '{}'
+  const text = data.content?.find((b: any) => b.type === 'text')?.text
+  if (!text) return NextResponse.json({ error: 'No response', data }, { status: 500 })
   try {
-    return NextResponse.json(JSON.parse(text.replace(/```json|```/g, '').trim()))
+    return NextResponse.json(JSON.parse(text.trim()))
   } catch {
     return NextResponse.json({ error: 'Parse error', raw: text }, { status: 500 })
   }
