@@ -53,15 +53,12 @@ const Label = ({c}:{c:string}) => <div style={{fontSize:10,color:C.muted,marginB
 const Chip = ({label,color,bg}:{label:string,color:string,bg:string}) => <span style={{background:bg,color,borderRadius:20,padding:'3px 10px',fontSize:11,fontWeight:600,whiteSpace:'nowrap'}}>{label}</span>
 
 const callClaude = async (prompt: string) => {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:1000,
-      system:'You are a local business outreach expert. Respond with valid JSON only.',
-      messages:[{role:'user',content:prompt}] })
+  const res = await fetch('/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
   })
-  const data = await res.json()
-  const raw = data.content?.find((b:any)=>b.type==='text')?.text||'{}'
-  return JSON.parse(raw.replace(/```json|```/g,'').trim())
+  return await res.json()
 }
 
 export default function CRMPage() {
