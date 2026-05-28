@@ -1,12 +1,21 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+let client: SupabaseClient | null = null
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+function getClient(): SupabaseClient {
+  if (!client) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    if (!url || !key) {
+      throw new Error('Supabase env vars (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY) are not set.')
+    }
+    client = createClient(url, key)
+  }
+  return client
+}
 
 export async function kvGet(key: string): Promise<string | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getClient()
     .from('kv_store')
     .select('value')
     .eq('id', key)
@@ -16,11 +25,11 @@ export async function kvGet(key: string): Promise<string | null> {
 }
 
 export async function kvSet(key: string, value: string): Promise<void> {
-  await supabase
+  await getClient()
     .from('kv_store')
     .upsert({ id: key, value, updated_at: new Date().toISOString() })
 }
 
 export async function kvDelete(key: string): Promise<void> {
-  await supabase.from('kv_store').delete().eq('id', key)
+  await getClient().from('kv_store').delete().eq('id', key)
 }
