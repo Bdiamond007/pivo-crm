@@ -182,6 +182,73 @@ export async function requestRefund(orderName: string, reason: string): Promise<
   return { ok: true, note: `Refund request for ${orderName} queued for admin approval.` }
 }
 
+// Execute an APPROVED refund. Called only after an admin approves the request.
+// Demo mode simulates success. Live mode issues a Shopify `refundCreate` against
+// the order's parent (capture) transaction for the given amount.
+//
+// NOTE: live execution must be validated against your store's payment gateway
+// and refund policy before production use — it moves real money.
+export async function executeRefund(
+  orderName: string,
+  amount: number,
+  currency = 'USD'
+): Promise<{ ok: boolean; refundId?: string; note: string }> {
+  if (!shopifyLive) {
+    return { ok: true, refundId: `demo_refund_${Date.now().toString(36)}`, note: `Demo: refunded ${currency} ${amount} for ${orderName}.` }
+  }
+
+  // 1. Resolve the order id + the parent capture transaction to refund against.
+  const clean = orderName.replace('#', '').trim()
+  const data = await gql(
+    `query($q: String!) {
+      orders(first: 1, query: $q) {
+        edges { node {
+          id
+          transactions(first: 10) { id kind status gateway parentTransaction { id } }
+        } }
+      }
+    }`,
+    { q: `name:${clean}` }
+  )
+  const node = data?.orders?.edges?.[0]?.node
+  if (!node) return { ok: false, note: `Order ${orderName} not found.` }
+
+  const capture = (node.transactions || []).find(
+    (t: any) => ['SALE', 'CAPTURE'].includes((t.kind || '').toUpperCase()) && (t.status || '').toUpperCase() === 'SUCCESS'
+  )
+  if (!capture) return { ok: false, note: `No captured payment found to refund for ${orderName}.` }
+
+  // 2. Issue the refund for the requested amount against that transaction.
+  const res = await gql(
+    `mutation($input: RefundInput!) {
+      refundCreate(input: $input) {
+        refund { id }
+        userErrors { field message }
+      }
+    }`,
+    {
+      input: {
+        orderId: node.id,
+        note: 'Refund approved via Aria support portal',
+        transactions: [
+          {
+            orderId: node.id,
+            gateway: capture.gateway,
+            kind: 'REFUND',
+            amount: amount.toFixed(2),
+            parentId: capture.id,
+          },
+        ],
+      },
+    }
+  )
+  const errs = res?.refundCreate?.userErrors
+  if (errs && errs.length) {
+    return { ok: false, note: errs.map((e: any) => e.message).join('; ') }
+  }
+  return { ok: true, refundId: res?.refundCreate?.refund?.id, note: `Refunded ${currency} ${amount} for ${orderName}.` }
+}
+
 // ---------------------------------------------------------------------------
 // Normalizers
 // ---------------------------------------------------------------------------

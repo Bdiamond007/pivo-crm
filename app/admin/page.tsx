@@ -28,6 +28,17 @@ interface Conversation {
 
 const FILTERS = ['all', 'open', 'pending', 'escalated', 'resolved']
 
+interface RefundReq {
+  id: string; conversationId: string | null; orderName: string
+  customerEmail: string | null; amount: number | null; currency: string
+  reason: string; status: string; decidedBy: string | null; note: string | null
+  createdAt: string; decidedAt: string | null
+}
+
+const REFUND_COLOR: Record<string, string> = {
+  pending: T.warning, approved: T.info, processed: T.success, denied: T.faint, failed: T.danger,
+}
+
 export default function AdminDashboard() {
   const [convs, setConvs] = useState<Conversation[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -35,6 +46,9 @@ export default function AdminDashboard() {
   const [search, setSearch] = useState('')
   const [reply, setReply] = useState('')
   const [loading, setLoading] = useState(true)
+  const [view, setView] = useState<'inbox' | 'refunds'>('inbox')
+  const [refunds, setRefunds] = useState<RefundReq[]>([])
+  const [pendingRefunds, setPendingRefunds] = useState(0)
   const selectedRef = useRef<string | null>(null)
   selectedRef.current = selectedId
 
@@ -47,8 +61,22 @@ export default function AdminDashboard() {
         if (!selectedRef.current && data.conversations.length) setSelectedId(data.conversations[0].id)
       }
     } catch {}
+    try {
+      const res = await fetch('/api/refunds')
+      const data = await res.json()
+      if (data.refunds) { setRefunds(data.refunds); setPendingRefunds(data.pending || 0) }
+    } catch {}
     setLoading(false)
   }, [])
+
+  const decideRefund = async (id: string, action: 'approve' | 'deny') => {
+    await fetch(`/api/refunds/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, agent: 'You' }),
+    })
+    await load()
+  }
 
   // Near-realtime: poll every 4s. (Production: Supabase Realtime channel.)
   useEffect(() => {
@@ -94,9 +122,18 @@ export default function AdminDashboard() {
       <Style />
       {/* Header */}
       <header style={{ background: '#fff', borderBottom: `1px solid ${T.border}`, padding: '11px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 30 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 7, background: T.ink, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 14 }}>A</div>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>Aria <span style={{ color: T.muted, fontWeight: 500 }}>· Operations</span></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 7, background: T.ink, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 14 }}>A</div>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>Aria <span style={{ color: T.muted, fontWeight: 500 }}>· Operations</span></div>
+          </div>
+          <nav style={{ display: 'flex', gap: 4 }}>
+            <button className="navbtn" onClick={() => setView('inbox')} style={{ background: view === 'inbox' ? T.ink : 'transparent', color: view === 'inbox' ? '#fff' : T.muted }}>Inbox</button>
+            <button className="navbtn" onClick={() => setView('refunds')} style={{ background: view === 'refunds' ? T.ink : 'transparent', color: view === 'refunds' ? '#fff' : T.muted }}>
+              Refunds
+              {pendingRefunds > 0 && <span style={{ marginLeft: 6, background: T.warning, color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{pendingRefunds}</span>}
+            </button>
+          </nav>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: T.muted }}>
           <span className="pulse" />
@@ -125,7 +162,8 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Main grid */}
+      {/* Main grid (Inbox view) */}
+      {view === 'inbox' && (
       <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr 280px', gap: 0, height: 'calc(100vh - 168px)', borderTop: `1px solid ${T.border}` }} className="admin-grid">
 
         {/* Inbox */}
@@ -240,6 +278,51 @@ export default function AdminDashboard() {
           )}
         </div>
       </div>
+      )}
+
+      {view === 'refunds' && <RefundsView refunds={refunds} onDecide={decideRefund} />}
+    </div>
+  )
+}
+
+function RefundsView({ refunds, onDecide }: { refunds: RefundReq[]; onDecide: (id: string, a: 'approve' | 'deny') => void }) {
+  return (
+    <div style={{ padding: 18, borderTop: `1px solid ${T.border}`, maxWidth: 1000, margin: '0 auto', width: '100%' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', color: T.muted, marginBottom: 12 }}>REFUND APPROVAL QUEUE</div>
+      {refunds.length === 0 && (
+        <div style={{ background: '#fff', border: `1px solid ${T.border}`, borderRadius: 14, padding: 28, color: T.faint, fontSize: 14, textAlign: 'center' }}>
+          No refund requests yet. They appear here when Aria files one (try “refund #1001” in the <a href="/support" style={{ color: T.brand }}>support portal</a>).
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {refunds.map((r) => (
+          <div key={r.id} style={{ background: '#fff', border: `1px solid ${T.border}`, borderRadius: 14, padding: 16, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 90 }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{r.orderName}</div>
+              <div style={{ fontSize: 12, color: T.muted }}>{r.customerEmail || '—'}</div>
+            </div>
+            <div style={{ minWidth: 90 }}>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>{r.amount != null ? `${r.currency} ${r.amount.toFixed(2)}` : '—'}</div>
+              <div style={{ fontSize: 11, color: T.muted }}>suggested</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 180, fontSize: 13, color: T.inkSoft }}>
+              <span style={{ color: T.muted }}>Reason: </span>{r.reason || '—'}
+              {r.note && <div style={{ fontSize: 11, color: T.faint, marginTop: 3 }}>{r.note}</div>}
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: REFUND_COLOR[r.status] || T.muted }}>{r.status}</span>
+            {r.status === 'pending' ? (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn-dark" onClick={() => onDecide(r.id, 'approve')}>Approve</button>
+                <button className="act" onClick={() => onDecide(r.id, 'deny')}>Deny</button>
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: T.faint, minWidth: 120, textAlign: 'right' }}>
+                {r.decidedBy ? `by ${r.decidedBy}` : ''}{r.decidedAt ? ` · ${new Date(r.decidedAt).toLocaleDateString()}` : ''}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -314,6 +397,7 @@ function Style() {
       .search{width:100%;border:1px solid ${T.border};border-radius:9px;padding:8px 11px;font-size:13px;font-family:${SANS};outline:none}
       .search:focus{border-color:${T.ink}}
       .filt{border:1px solid ${T.border};border-radius:16px;padding:4px 11px;font-size:11px;font-weight:600;font-family:${SANS};cursor:pointer;text-transform:capitalize}
+      .navbtn{border:none;border-radius:8px;padding:6px 13px;font-size:13px;font-weight:600;font-family:${SANS};cursor:pointer;display:inline-flex;align-items:center}
       .inbox-item{display:block;width:100%;text-align:left;border:none;border-bottom:1px solid ${T.border};padding:11px 13px;cursor:pointer;font-family:${SANS}}
       .inbox-item:hover{background:${T.subtle}!important}
       .act{border:1px solid ${T.border};background:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;font-family:${SANS};cursor:pointer;color:${T.ink}}

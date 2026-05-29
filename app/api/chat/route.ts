@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
       userMessage: message,
       customerEmail: customerEmail || conv.customerEmail,
       customerName: customerName || conv.customerName,
+      conversationId: conv.id,
       knownOrders,
     })
 

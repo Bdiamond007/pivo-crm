@@ -20,6 +20,26 @@ export type TicketStatus = 'open' | 'pending' | 'escalated' | 'resolved' | 'clos
 
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent'
 
+// Human-in-the-loop refund approval. The AI files a `pending` request; an admin
+// approves/denies; approval triggers execution (real Shopify refund in live
+// mode, simulated in demo). Money never moves without `approved`.
+export type RefundStatus = 'pending' | 'approved' | 'denied' | 'processed' | 'failed'
+
+export interface RefundRequest {
+  id: string
+  conversationId: string | null
+  orderName: string
+  customerEmail: string | null
+  amount: number | null
+  currency: string
+  reason: string
+  status: RefundStatus
+  decidedBy: string | null
+  note: string | null        // execution note / failure reason
+  createdAt: string
+  decidedAt: string | null
+}
+
 export interface ChatMessage {
   id: string
   role: Role

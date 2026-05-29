@@ -35,13 +35,14 @@ interface EngineInput {
   userMessage: string
   customerEmail: string | null
   customerName: string | null
+  conversationId?: string | null
   knownOrders?: string[]
 }
 
 export async function runSupportEngine(input: EngineInput): Promise<EngineResult> {
   if (!OPENAI_KEY) return ruleBasedFallback(input)
 
-  const ctx: ToolContext = { customerEmail: input.customerEmail }
+  const ctx: ToolContext = { customerEmail: input.customerEmail, conversationId: input.conversationId }
   const toolCalls: EngineResult['toolCalls'] = []
 
   const messages: any[] = [
@@ -172,7 +173,7 @@ async function analyze(userMessage: string, reply: string): Promise<{
 // ---------------------------------------------------------------------------
 
 async function ruleBasedFallback(input: EngineInput): Promise<EngineResult> {
-  const ctx: ToolContext = { customerEmail: input.customerEmail }
+  const ctx: ToolContext = { customerEmail: input.customerEmail, conversationId: input.conversationId }
   const text = input.userMessage.toLowerCase()
   const orderMatch = input.userMessage.match(/#?\s?(\d{3,6})/)
   const toolCalls: EngineResult['toolCalls'] = []
@@ -186,7 +187,8 @@ async function ruleBasedFallback(input: EngineInput): Promise<EngineResult> {
   if (angry) sentiment = 'angry'
   else if (frustrated) sentiment = 'frustrated'
 
-  if (/track|where.*order|shipped|delivery|arrive/.test(text)) {
+  const refundIntent = /refund|return|money back|cancel/.test(text)
+  if (/track|where.*order|shipped|delivery|arrive/.test(text) && !refundIntent) {
     intent = 'track_shipment'
     if (orderMatch) {
       const r = await TOOLS.track_shipment.run({ orderNumber: orderMatch[1] }, ctx)
@@ -198,15 +200,19 @@ async function ruleBasedFallback(input: EngineInput): Promise<EngineResult> {
     } else {
       reply = `Happy to track that for you! What's your order number? (It looks like #1001.)`
     }
-  } else if (/refund|return|money back|cancel/.test(text)) {
+  } else if (refundIntent) {
     intent = 'refund_return'
     if (orderMatch) {
       const r = await TOOLS.check_refund_eligibility.run({ orderNumber: orderMatch[1] }, ctx)
       toolCalls.push({ name: 'check_refund_eligibility', args: { orderNumber: orderMatch[1] }, result: r })
-      reply = r.eligible
-        ? `Order #${orderMatch[1]} is eligible for a refund (${r.reason}). I've queued a refund request for our team to approve — you'll get an email shortly.`
-        : `Order #${orderMatch[1]} falls outside our standard refund window, so I'm passing this to a teammate to review personally.`
-      if (!r.eligible) escalate = true
+      if (r.eligible) {
+        const filed = await TOOLS.request_refund.run({ orderNumber: orderMatch[1], reason: input.userMessage }, ctx)
+        toolCalls.push({ name: 'request_refund', args: { orderNumber: orderMatch[1], reason: input.userMessage }, result: filed })
+        reply = `Order #${orderMatch[1]} is eligible for a refund (${r.reason}). I've submitted a refund request for our team to approve — you'll get an email once it's processed. No charge has been reversed yet.`
+      } else {
+        reply = `Order #${orderMatch[1]} falls outside our standard refund window, so I'm passing this to a teammate to review personally.`
+        escalate = true
+      }
     } else {
       reply = `I can help with a refund. What's the order number?`
     }

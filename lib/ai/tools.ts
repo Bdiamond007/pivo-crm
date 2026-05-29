@@ -9,8 +9,8 @@ import {
   getOrdersByEmail,
   getCustomerByEmail,
   searchProducts,
-  requestRefund,
 } from '../shopify'
+import { createRefundRequest } from '../refunds'
 
 export interface ToolDef {
   schema: any // OpenAI tools[] entry
@@ -19,6 +19,7 @@ export interface ToolDef {
 
 export interface ToolContext {
   customerEmail: string | null
+  conversationId?: string | null
 }
 
 export const TOOLS: Record<string, ToolDef> = {
@@ -135,9 +136,26 @@ export const TOOLS: Record<string, ToolDef> = {
         },
       },
     },
-    run: async (args) => {
-      const res = await requestRefund(args.orderNumber, args.reason)
-      return res
+    run: async (args, ctx) => {
+      // Compute the order total so the admin sees a suggested amount, then file
+      // a PENDING request. No money moves here — approval happens in /admin.
+      const order = await getOrderByName(args.orderNumber, ctx.customerEmail || undefined)
+      const amount = order ? Number(order.totalPrice) : null
+      const rr = await createRefundRequest({
+        conversationId: ctx.conversationId || null,
+        orderName: order?.name || args.orderNumber,
+        customerEmail: ctx.customerEmail || order?.email || null,
+        amount,
+        currency: order?.currency || 'USD',
+        reason: args.reason,
+        status: 'pending',
+      })
+      return {
+        ok: true,
+        requestId: rr.id,
+        status: 'pending',
+        note: `Refund request for ${rr.orderName} submitted for admin approval. No funds have moved yet.`,
+      }
     },
   },
 
