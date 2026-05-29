@@ -70,15 +70,39 @@ create table if not exists agents (
 );
 
 -- ---------------------------------------------------------------------------
--- Realtime: broadcast conversation changes to the admin dashboard.
--- (The app currently polls; enable this to upgrade to push-based Realtime.)
+-- Realtime: push row changes to the admin dashboard + customer portal so the
+-- UI updates instantly instead of polling. The app subscribes via the browser
+-- anon key (lib/realtime.ts); if these statements aren't run it transparently
+-- falls back to polling.
+--
+-- `add table ... if not exists` isn't supported, so guard against re-runs.
 -- ---------------------------------------------------------------------------
--- alter publication supabase_realtime add table conversations;
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and tablename = 'conversations'
+  ) then
+    alter publication supabase_realtime add table conversations;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and tablename = 'refund_requests'
+  ) then
+    alter publication supabase_realtime add table refund_requests;
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Row Level Security
 -- For the demo the API uses the service role (bypasses RLS). If you expose the
 -- anon key to the browser, lock these down to the authenticated customer.
+--
+-- IMPORTANT for production: Realtime postgres_changes respects RLS. With RLS
+-- OFF (demo default) any anon subscriber receives all change events — fine for
+-- an internal admin tool, NOT for the public customer portal. Before going
+-- public, enable RLS + a per-customer policy and use Realtime authorization so
+-- a customer only receives their own conversation's events.
 -- ---------------------------------------------------------------------------
 -- alter table conversations enable row level security;
 -- create policy "customers read own conversations" on conversations

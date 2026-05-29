@@ -257,15 +257,25 @@ Request/response contracts follow `lib/types.ts`.
 
 ## 12. Realtime workflow logic
 
-- **Now**: the admin dashboard polls `/api/conversations` every 4s — robust on
-  serverless, zero infra. The portal optimistically renders and shows a typing
-  indicator while awaiting the AI turn.
-- **Upgrade path**: subscribe the admin client to a Supabase Realtime channel on
-  the `conversations` table (one line in `db/schema.sql`) and replace the poll
-  with a live subscription — no API changes needed.
+- **Implemented**: `lib/realtime.ts` subscribes the browser to Supabase
+  `postgres_changes` on `conversations` + `refund_requests`. The admin dashboard
+  updates the instant a row changes (new message, status, refund decision); the
+  customer portal subscribes to its own conversation row and shows agent replies,
+  shipment updates, and refund confirmations the moment they happen — no refresh.
+- **Signal, not payload**: Realtime is used as a "something changed, refresh now"
+  trigger; the API (service-role reads) stays the source of truth, so the client
+  never reconciles raw row payloads.
+- **Graceful fallback**: when Supabase isn't configured, both surfaces fall back
+  to polling (admin 4s; customer 5s) so demo mode works with zero config. A slow
+  30s safety poll runs even with Realtime on, to recover any missed events. The
+  header shows `Live · realtime` vs `Live · polling (4s)`.
+- **Enablement**: `db/schema.sql` adds both tables to the `supabase_realtime`
+  publication (re-run safe). Production note: Realtime respects RLS — enable RLS
+  + a per-customer policy before exposing the customer portal publicly, so a
+  customer only receives their own conversation's events.
 - **Event-driven workflows**: Shopify webhooks fan out to (a) proactive customer
   threads ("your order shipped"), (b) internal alerts, (c) auto-status updates
-  (refund processed → resolved).
+  (refund processed → resolved) — all surfaced live via the same channel.
 
 ---
 

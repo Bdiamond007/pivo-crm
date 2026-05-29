@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { subscribeToTables, realtimeEnabled } from '@/lib/realtime'
 
 // Local design tokens (premium / minimalist / white).
 const T = {
@@ -89,6 +90,37 @@ export default function SupportPortal() {
     }
     setSending(false)
   }
+
+  // Pull any messages that arrived out-of-band (a human agent reply, a webhook
+  // shipment update, a refund confirmation). We only append non-customer
+  // messages we don't already have, so our optimistic echoes never duplicate.
+  const refreshConversation = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/conversations/${id}`)
+      const data = await res.json()
+      const conv = data.conversation
+      if (!conv) return
+      if (conv.humanTakeover) setEscalated(true)
+      setMessages((prev) => {
+        const have = new Set(prev.map((m) => m.id))
+        const incoming = (conv.messages || [])
+          .filter((m: any) => m.role !== 'customer' && !have.has(m.id))
+          .map((m: any) => ({ id: m.id, role: m.role, content: m.content, createdAt: m.createdAt }))
+        return incoming.length ? [...prev, ...incoming] : prev
+      })
+    } catch {}
+  }, [])
+
+  // Realtime push for this conversation; polling fallback when Supabase is off.
+  useEffect(() => {
+    if (!convId) return
+    const unsub = subscribeToTables(['conversations'], () => refreshConversation(convId), {
+      filterColumn: 'id',
+      filterValue: convId,
+    })
+    const t = realtimeEnabled ? null : setInterval(() => refreshConversation(convId), 5000)
+    return () => { unsub(); if (t) clearInterval(t) }
+  }, [convId, refreshConversation])
 
   // ---- Auth gate ----
   if (!authed) {

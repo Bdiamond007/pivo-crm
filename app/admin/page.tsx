@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { subscribeToTables, realtimeEnabled } from '@/lib/realtime'
 
 const T = {
   bg: '#FFFFFF', subtle: '#FAFAFA', ink: '#0A0A0A', inkSoft: '#404040',
@@ -78,11 +79,13 @@ export default function AdminDashboard() {
     await load()
   }
 
-  // Near-realtime: poll every 4s. (Production: Supabase Realtime channel.)
+  // Realtime when Supabase is configured (instant push); otherwise poll.
+  // A slow safety poll runs in both cases to recover from any missed events.
   useEffect(() => {
     load()
-    const t = setInterval(load, 4000)
-    return () => clearInterval(t)
+    const unsub = subscribeToTables(['conversations', 'refund_requests'], load)
+    const t = setInterval(load, realtimeEnabled ? 30000 : 4000)
+    return () => { unsub(); clearInterval(t) }
   }, [load])
 
   const selected = convs.find((c) => c.id === selectedId) || null
@@ -137,7 +140,7 @@ export default function AdminDashboard() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: T.muted }}>
           <span className="pulse" />
-          Live · updates every 4s
+          {realtimeEnabled ? 'Live · realtime' : 'Live · polling (4s)'}
         </div>
       </header>
 
