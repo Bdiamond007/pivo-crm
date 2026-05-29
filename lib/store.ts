@@ -24,6 +24,24 @@ const mem = new Map<string, Conversation>()
 
 const TABLE = 'conversations'
 
+// Lightweight health probe for /api/health. On Supabase it does a head-only
+// exact count, confirming the table is reachable (schema applied + creds valid)
+// without transferring any rows.
+export async function storeHealth(): Promise<{
+  backend: typeof storeBackend
+  reachable: boolean
+  count: number | null
+}> {
+  if (!sb) return { backend: storeBackend, reachable: true, count: mem.size }
+  try {
+    const { count, error } = await sb.from(TABLE).select('*', { count: 'exact', head: true })
+    if (error) return { backend: storeBackend, reachable: false, count: null }
+    return { backend: storeBackend, reachable: true, count: count ?? null }
+  } catch {
+    return { backend: storeBackend, reachable: false, count: null }
+  }
+}
+
 export function newId(prefix = 'conv'): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
