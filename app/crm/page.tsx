@@ -171,11 +171,17 @@ Return: {"script":"...","followUp":"..."}`)
       const res = await fetch('/api/send-sms', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({to:prospect.phone, body:prospect.script})
+        body: JSON.stringify({
+          to:prospect.phone,
+          body:prospect.script,
+          accountSid:twilio.accountSid,
+          authToken:twilio.authToken,
+          from:twilio.fromNumber,
+        })
       })
       const data = await res.json()
       if (data.success) {
-        alert(`✅ SMS sent to ${prospect.phone}!\nSID: ${data.messageSid}`)
+        alert(`✅ SMS ${data.status||'sent'} to ${data.to||prospect.phone}!\nSID: ${data.messageSid}`)
         const entry = {date:new Date().toISOString().split('T')[0],type:'text',note:'Auto-SMS sent via Twilio'}
         await saveP(prospects.map(p=>p.id===prospect.id?{...p,lastContact:entry.date,contacts:[entry,...(p.contacts||[])]}:p))
       } else {
